@@ -1,7 +1,7 @@
 /*******************************************
  * File: Token.cpp                         *
- * Author: S. Blythe                       *
- * Date: 12/2022                           *
+ * Author: S. Blythe, Grant Duchars        *
+ * Date: 1/26/2023                         *
  * PURPOSE: implementation for Token       *
  *******************************************/
 
@@ -10,11 +10,14 @@
 #include <fstream>
 #include <iomanip>
 
+using namespace std;
+
+void build_DFA();
+void skip_whitespace(istream &is);
+
 const int _NUM_STATES = 20;
 const int _NUM_CHARS = 256;
 char _BUFFER[512];
-
-using namespace std;
 
 // the promised global for string equivalents of TokenType enumeration
 string TokStr[] =
@@ -23,6 +26,9 @@ string TokStr[] =
 // This is a "list" of the keywords. Note that they are in the same order
 //   as found on the TokenType enumaration.
 static string reserved[] = {"int", "float", "while", "if", "then", "else", "void", "begin", "end"};
+
+int **DFA = nullptr;
+TokenType *state_to_type = nullptr;
 
 /******************************************************
  *  just prints out the info describing this Token    *
@@ -43,12 +49,98 @@ Token::print(ostream &os) const
     return os;
 }
 
-int **DFA = nullptr;
-TokenType *state_to_type = nullptr;
+/******************************************************
+ *  Fills in information about this Token by reading  *
+ *    it from specified input stream                  *
+ *                                                    *
+ *   is  - the stream to read the Token from          *
+ *                                                    *
+ *   returns: nothing                                 *
+ *                                                    *
+ *     **** YOU MUST CODE THIS !!!!!! ****            *
+ ******************************************************/
+void Token::get(istream &is)
+{
+    // Check for and build DFA if needed
+    if (DFA == nullptr)
+    {
+        build_DFA();
+        _line_num = 1;
+    }
+
+    // Reset value of token
+    _value = "";
+
+    // Skip to first character on the current line
+    skip_whitespace(is);
+    if (!is)
+    {
+        _type = TokenType::EOF_TOK;
+        return;
+    }
+
+    // Process new lines and comments
+    char curr_char = is.get();
+    if (curr_char == '\n' || curr_char == '#')
+    {
+        while (curr_char == '\n' || curr_char == '#')
+        {
+            _line_num++;
+            // If it is a comment then consume the whole line
+            if (curr_char == '#')
+                is.getline(_BUFFER, 512);
+            skip_whitespace(is);
+            if (!is)
+            {
+                _type = TokenType::EOF_TOK;
+                return;
+            }
+            curr_char = is.get();
+        }
+    }
+    is.putback(curr_char);
+
+    // Start processing characters
+    int curr_state = 0;
+    int prev_state = -1;
+    while (curr_state != -1)
+    {
+        curr_char = is.get();
+        prev_state = curr_state;
+        curr_state = DFA[curr_state][(int)curr_char];
+        if (curr_state != -1)
+            _value += curr_char;
+    }
+    // Last character read is not part of token due to current state so put it back
+    is.putback(curr_char);
+
+    // Check for reserved
+    if (prev_state == 1)
+    {
+        for (int i = 0; i < 9; i++)
+        {
+            if (reserved[i] == _value)
+            {
+                _type = static_cast<TokenType>(TokenType::INTEGER + i);
+                return;
+            }
+        }
+    }
+    _type = state_to_type[prev_state];
+}
 
 /**
- * Builds the DFA (obviously)
+ * Skips any whitespace and puts back the first character comsumed.
  */
+void skip_whitespace(istream &is)
+{
+    char c;
+    c = is.get();
+    while (c == ' ')
+        c = is.get();
+    is.putback(c);
+}
+
 void build_DFA()
 {
     // Build DFA
@@ -119,89 +211,4 @@ void build_DFA()
     state_to_type[17] = TokenType::LBRACK;
     state_to_type[18] = TokenType::RBRACK;
     state_to_type[19] = TokenType::COMMA;
-}
-
-/**
- * Skips any whitespace and puts back the first character comsumed.
- * @return True if end of input stream
- */
-bool skip_whitespace(istream &is)
-{
-    char c;
-    is >> c;
-    if (is)
-        is.putback(c);
-    return (!is) ? true : false;
-}
-
-/******************************************************
- *  Fills in information about this Token by reading  *
- *    it from specified input stream                  *
- *                                                    *
- *   is  - the stream to read the Token from          *
- *                                                    *
- *   returns: nothing                                 *
- *                                                    *
- *     **** YOU MUST CODE THIS !!!!!! ****            *
- ******************************************************/
-void Token::get(istream &is)
-{
-    // Check for and build DFA if needed
-    if (DFA == nullptr)
-    {
-        build_DFA();
-        _line_num = 1;
-    }
-
-    // Reset value of token
-    _value = "";
-
-    char curr_char = is.get();
-    while (curr_char == '\n' || curr_char == '#')
-    {
-        if (curr_char == '#')
-            is.getline(_BUFFER, 512);
-        curr_char = is.get();
-        _line_num++;
-    }
-    if (is)
-        is.putback(curr_char);
-
-    // Skip to first charcter on the current line
-    if (skip_whitespace(is))
-    {
-        _type = TokenType::EOF_TOK;
-        return;
-    }
-
-    // Start processing characters
-    int curr_state = 0;
-    int prev_state = -1;
-    while (curr_state != -1)
-    {
-        curr_char = is.get();
-        // Update states
-        prev_state = curr_state;
-        curr_state = DFA[curr_state][(int)curr_char];
-        if (curr_state != -1)
-            _value += curr_char;
-    }
-
-    // Last character read is not part of token due to current state so put it back
-    if (is)
-        is.putback(curr_char);
-
-    // Check for reserved
-    if (prev_state == 1)
-    {
-        for (int i = 0; i < 9; i++)
-        {
-            if (reserved[i] == _value)
-            {
-                _type = static_cast<TokenType>(TokenType::INTEGER + i);
-                return;
-            }
-        }
-    }
-    _type = state_to_type[prev_state];
 }

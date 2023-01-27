@@ -12,7 +12,7 @@
 
 const int _NUM_STATES = 20;
 const int _NUM_CHARS = 256;
-char _BUFFER[256];
+char _BUFFER[512];
 
 using namespace std;
 
@@ -43,20 +43,21 @@ Token::print(ostream &os) const
     return os;
 }
 
-static int **DFA = nullptr;
+int **DFA = nullptr;
+TokenType *state_to_type = nullptr;
 
 /**
  * Builds the DFA (obviously)
  */
 void build_DFA()
 {
+    // Build DFA
     DFA = new int *[_NUM_STATES];
     for (int state = 0; state < _NUM_STATES; state++)
     {
         DFA[state] = new int[_NUM_CHARS];
     }
     fill_n(&DFA[0][0], _NUM_STATES * _NUM_CHARS, -1);
-
     // State 0
     fill(&DFA[0][(int)'A'], &DFA[0][(int)'Z'], 1);
     fill(&DFA[0][(int)'a'], &DFA[0][(int)'z'], 1);
@@ -76,33 +77,48 @@ void build_DFA()
     DFA[0][(int)'['] = 17;
     DFA[0][(int)']'] = 18;
     DFA[0][(int)','] = 19;
-
     // State 1
     fill(&DFA[1][(int)'A'], &DFA[1][(int)'Z'], 1);
     fill(&DFA[1][(int)'a'], &DFA[1][(int)'z'], 1);
     fill(&DFA[1][(int)'0'], &DFA[1][(int)'9'], 1);
-
     // State 2
     fill(&DFA[2][(int)'0'], &DFA[2][(int)'9'], 2);
     DFA[2][(int)'.'] = 3;
-
     // State 3
     fill(&DFA[3][(int)'0'], &DFA[3][(int)'9'], 4);
-
     // State 4
     fill(&DFA[4][(int)'0'], &DFA[4][(int)'9'], 4);
-
     // State 7
     DFA[7][(int)'='] = 8;
-
     // State 9
     DFA[9][(int)'='] = 8;
-
     // State 12
     DFA[12][(int)'&'] = 13;
-
     // State 14
     DFA[14][(int)'|'] = 15;
+
+    // Build state_to_type
+    state_to_type = new TokenType[20];
+    state_to_type[0] = TokenType::ERROR;
+    state_to_type[1] = TokenType::ID;
+    state_to_type[2] = TokenType::NUM_INT;
+    state_to_type[3] = TokenType::ERROR;
+    state_to_type[4] = TokenType::NUM_REAL;
+    state_to_type[5] = TokenType::ADDOP;
+    state_to_type[6] = TokenType::MULOP;
+    state_to_type[7] = TokenType::RELOP;
+    state_to_type[8] = TokenType::RELOP;
+    state_to_type[9] = TokenType::ASSIGNOP;
+    state_to_type[10] = TokenType::LPAREN;
+    state_to_type[11] = TokenType::RPAREN;
+    state_to_type[12] = TokenType::ERROR;
+    state_to_type[13] = TokenType::AND;
+    state_to_type[14] = TokenType::ERROR;
+    state_to_type[15] = TokenType::OR;
+    state_to_type[16] = TokenType::SEMICOLON;
+    state_to_type[17] = TokenType::LBRACK;
+    state_to_type[18] = TokenType::RBRACK;
+    state_to_type[19] = TokenType::COMMA;
 }
 
 /**
@@ -132,11 +148,24 @@ void Token::get(istream &is)
 {
     // Check for and build DFA if needed
     if (DFA == nullptr)
+    {
         build_DFA();
+        _line_num = 1;
+    }
 
     // Reset value of token
     _value = "";
-    char curr_char;
+
+    char curr_char = is.get();
+    while (curr_char == '\n' || curr_char == '#')
+    {
+        if (curr_char == '#')
+            is.getline(_BUFFER, 512);
+        curr_char = is.get();
+        _line_num++;
+    }
+    if (is)
+        is.putback(curr_char);
 
     // Skip to first charcter on the current line
     if (skip_whitespace(is))
@@ -151,17 +180,6 @@ void Token::get(istream &is)
     while (curr_state != -1)
     {
         curr_char = is.get();
-        // Check for comment, consume line if so
-        if (curr_char == '#')
-        {
-            is.getline(_BUFFER, 256);
-            if (skip_whitespace(is))
-            {
-                _type = TokenType::EOF_TOK;
-                return;
-            }
-            continue;
-        }
         // Update states
         prev_state = curr_state;
         curr_state = DFA[curr_state][(int)curr_char];
@@ -173,11 +191,9 @@ void Token::get(istream &is)
     if (is)
         is.putback(curr_char);
 
-    // Convert state to token type (I wish this was a Rust match expression)
-    switch (prev_state)
+    // Check for reserved
+    if (prev_state == 1)
     {
-    case 1:
-        // Check for reserved
         for (int i = 0; i < 9; i++)
         {
             if (reserved[i] == _value)
@@ -186,54 +202,6 @@ void Token::get(istream &is)
                 return;
             }
         }
-        _type = TokenType::ID;
-        return;
-    case 2:
-        _type = TokenType::NUM_INT;
-        return;
-    case 4:
-        _type = TokenType::NUM_REAL;
-        return;
-    case 5:
-        _type = TokenType::ADDOP;
-        return;
-    case 6:
-        _type = TokenType::MULOP;
-        return;
-    case 7:
-        _type = TokenType::RELOP;
-        return;
-    case 8:
-        _type = TokenType::RELOP;
-        return;
-    case 9:
-        _type = TokenType::ASSIGNOP;
-        return;
-    case 10:
-        _type = TokenType::LPAREN;
-        return;
-    case 11:
-        _type = TokenType::RPAREN;
-        return;
-    case 13:
-        _type = TokenType::AND;
-        return;
-    case 15:
-        _type = TokenType::OR;
-        return;
-    case 16:
-        _type = TokenType::SEMICOLON;
-        return;
-    case 17:
-        _type = TokenType::LBRACK;
-        return;
-    case 18:
-        _type = TokenType::RBRACK;
-        return;
-    case 19:
-        _type = TokenType::COMMA;
-        return;
-    default:
-        _type = TokenType::ERROR;
     }
+    _type = state_to_type[prev_state];
 }
